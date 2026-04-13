@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌍 全球热点新闻 3D 可视化</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; overflow:hidden; font-family:'Arial',sans-serif; color:#fff; }
+#canvas-container { width:100vw; height:100vh; position:relative; }
+canvas { display:block; }
+
+#hud { position:absolute; top:0;left:0;right:0;bottom:0; pointer-events:none; z-index:10; }
+
+/* 顶部栏 */
+#top-bar {
+  position:absolute; top:0;left:0;right:0; height:60px;
+  background:linear-gradient(180deg,rgba(0,15,35,0.97) 0%,transparent 100%);
+  display:flex; align-items:center; justify-content:space-between; padding:0 28px;
+  border-bottom:1px solid rgba(0,180,255,0.25);
+}
+#title { font-size:18px; font-weight:700; letter-spacing:4px;
+  background:linear-gradient(90deg,#00c8ff,#fff,#00ff88);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent; text-transform:uppercase; }
+#subtitle { font-size:10px; color:rgba(0,200,255,0.55); margin-top:2px; letter-spacing:2px; }
+#clock { font-size:13px; color:rgba(0,200,255,0.8); letter-spacing:2px; }
+#stats { display:flex; gap:22px; }
+.stat-item { text-align:center; }
+.stat-num { font-size:20px; font-weight:700; color:#00c8ff; line-height:1; }
+.stat-label { font-size:10px; color:rgba(255,255,255,0.4); letter-spacing:1px; margin-top:2px; }
+
+/* 角落 */
+.corner { position:absolute; width:36px; height:36px; opacity:0.45; }
+.corner-tl { top:68px;left:14px; border-top:2px solid #00c8ff; border-left:2px solid #00c8ff; }
+.corner-tr { top:68px;right:14px; border-top:2px solid #00c8ff; border-right:2px solid #00c8ff; }
+.corner-bl { bottom:52px;left:14px; border-bottom:2px solid #00c8ff; border-left:2px solid #00c8ff; }
+.corner-br { bottom:52px;right:14px; border-bottom:2px solid #00c8ff; border-right:2px solid #00c8ff; }
+
+/* 扫描线 */
+#scanline {
+  position:absolute; top:0;left:0;right:0; height:2px;
+  background:linear-gradient(90deg,transparent,rgba(0,200,255,0.25),transparent);
+  animation:scan 5s linear infinite; pointer-events:none;
+}
+@keyframes scan { 0%{top:0} 100%{top:100vh} }
+
+/* 图例 */
+#legend {
+  position:absolute; left:20px; top:50%; transform:translateY(-50%);
+  background:rgba(0,8,25,0.82); border:1px solid rgba(0,180,255,0.2);
+  border-radius:8px; padding:12px 14px; min-width:120px;
+}
+#legend h4 { font-size:9px; letter-spacing:2px; color:rgba(0,200,255,0.6); margin-bottom:8px; text-transform:uppercase; }
+.legend-item { display:flex; align-items:center; gap:7px; margin:5px 0; }
+.legend-dot { width:9px;height:9px; border-radius:50%; flex-shrink:0; }
+.legend-text { font-size:11px; color:rgba(255,255,255,0.75); }
+
+/* 新闻卡片 */
+#news-card {
+  position:absolute;
+  background:rgba(0,8,28,0.93);
+  border:1px solid rgba(0,200,255,0.4);
+  border-radius:10px; padding:14px 16px; max-width:270px; min-width:210px;
+  opacity:0; transition:opacity 0.18s ease;
+  backdrop-filter:blur(12px);
+  box-shadow:0 0 28px rgba(0,100,200,0.3),0 0 56px rgba(0,50,150,0.15);
+}
+#news-card.visible { opacity:1; }
+.card-category {
+  font-size:9px; letter-spacing:2px; font-weight:700; text-transform:uppercase;
+  margin-bottom:7px; display:inline-block; padding:2px 7px; border-radius:3px;
+}
+.card-title { font-size:13px; font-weight:700; color:#fff; line-height:1.4; margin-bottom:7px; }
+.card-desc { font-size:11px; color:rgba(255,255,255,0.6); line-height:1.6; margin-bottom:8px; }
+.card-meta {
+  display:flex; justify-content:space-between; font-size:10px;
+  color:rgba(0,200,255,0.6); border-top:1px solid rgba(0,200,255,0.15); padding-top:7px;
+}
+
+/* 跑马灯 */
+#ticker {
+  position:absolute; bottom:0;left:0;right:0; height:38px;
+  background:rgba(0,8,25,0.96); border-top:1px solid rgba(0,180,255,0.2);
+  display:flex; align-items:center; overflow:hidden;
+}
+#ticker-label {
+  flex-shrink:0; background:#00c8ff; color:#000; font-size:10px;
+  font-weight:700; letter-spacing:2px; padding:0 12px; height:100%;
+  display:flex; align-items:center; text-transform:uppercase;
+}
+#ticker-track { display:flex; white-space:nowrap; animation:ticker 70s linear infinite; }
+.ticker-item { display:inline-flex; align-items:center; gap:7px; padding:0 28px; font-size:12px; color:rgba(255,255,255,0.75); }
+.ticker-dot { width:5px;height:5px; border-radius:50%; flex-shrink:0; }
+@keyframes ticker { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+
+/* 提示 */
+#hint {
+  position:absolute; bottom:46px; right:20px;
+  font-size:10px; color:rgba(255,255,255,0.28); letter-spacing:1px;
+  text-align:right; line-height:1.8;
+}
+
+/* Loading */
+#loading {
+  position:absolute; inset:0; background:#000;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:100; transition:opacity 0.8s ease;
+}
+#loading.fade-out { opacity:0; pointer-events:none; }
+.loading-ring {
+  width:72px;height:72px; border:2px solid rgba(0,200,255,0.1);
+  border-top-color:#00c8ff; border-radius:50%; animation:spin 1s linear infinite; margin-bottom:20px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loading-text { font-size:12px; letter-spacing:3px; color:rgba(0,200,255,0.7); text-transform:uppercase; }
+#loading-progress { margin-top:12px; width:200px; height:2px; background:rgba(0,200,255,0.15); border-radius:2px; overflow:hidden; }
+#loading-bar { height:100%; background:#00c8ff; width:0%; transition:width 0.3s ease; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="loading-ring"></div>
+  <div id="loading-text">正在加载地图数据...</div>
+  <div id="loading-progress"><div id="loading-bar"></div></div>
+</div>
+
+<div id="canvas-container"></div>
+
+<div id="hud">
+  <div id="scanline"></div>
+  <div id="top-bar">
+    <div>
+      <div id="title">Global News 3D</div>
+      <div id="subtitle">Real-time Hotspot Visualization · Powered by Natural Earth</div>
+    </div>
+    <div id="stats">
+      <div class="stat-item"><div class="stat-num">20</div><div class="stat-label">热点事件</div></div>
+      <div class="stat-item"><div class="stat-num">18</div><div class="stat-label">覆盖地区</div></div>
+      <div class="stat-item"><div class="stat-num">7</div><div class="stat-label">新闻类别</div></div>
+    </div>
+    <div id="clock">--:--:--</div>
+  </div>
+  <div class="corner corner-tl"></div>
+  <div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div>
+  <div class="corner corner-br"></div>
+
+  <div id="legend">
+    <h4>新闻分类</h4>
+    <div class="legend-item"><div class="legend-dot" style="background:#00c8ff"></div><span class="legend-text">科技</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ffd700"></div><span class="legend-text">经济</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#00ff88"></div><span class="legend-text">气候</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff6b6b"></div><span class="legend-text">地缘政治</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff88ff"></div><span class="legend-text">健康医疗</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#88aaff"></div><span class="legend-text">航天探索</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ffaa44"></div><span class="legend-text">文化社会</span></div>
+  </div>
+
+  <div id="news-card">
+    <div class="card-category" id="card-cat"></div>
+    <div class="card-title" id="card-title"></div>
+    <div class="card-desc" id="card-desc"></div>
+    <div class="card-meta"><span id="card-region">📍 --</span><span id="card-time">🕐 --</span></div>
+  </div>
+
+  <div id="ticker">
+    <div id="ticker-label">Breaking</div>
+    <div id="ticker-track"></div>
+  </div>
+  <div id="hint">🖱 拖动旋转 · 滚轮缩放<br>✨ 悬停查看新闻详情</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════
+// 新闻数据
+// ═══════════════════════════════════════════════
+const NEWS = [
+  { lat:37.77,  lon:-122.41, title:"OpenAI 发布 GPT-5 多模态大模型",      desc:"新一代AI模型在推理、视觉和代码生成方面实现重大突破，参数量达万亿级别。",        cat:"科技",   color:"#00c8ff", region:"旧金山",    time:"2小时前" },
+  { lat:51.50,  lon:-0.12,   title:"英国宣布量子计算国家战略",              desc:"英国政府投入25亿英镑推动量子技术商业化，目标2030年建成全球量子中心。",          cat:"科技",   color:"#00c8ff", region:"伦敦",      time:"4小时前" },
+  { lat:35.68,  lon:139.69,  title:"日本央行宣布新一轮利率政策",            desc:"日本央行宣布将基准利率上调至1.0%，为近30年来最大单次加息幅度。",              cat:"经济",   color:"#ffd700", region:"东京",      time:"1小时前" },
+  { lat:40.71,  lon:-74.00,  title:"纽交所AI交易量首超人工交易",            desc:"算法与AI交易占纽约证交所日成交量的62%，创历史新高，引发监管关注。",            cat:"经济",   color:"#ffd700", region:"纽约",      time:"3小时前" },
+  { lat:-33.86, lon:151.20,  title:"澳大利亚爆发百年最强山火",              desc:"新南威尔士州山火已烧毁超50万公顷土地，逾万人被迫撤离，请求国际援助。",          cat:"气候",   color:"#00ff88", region:"悉尼",      time:"6小时前" },
+  { lat:64.13,  lon:-21.93,  title:"冰岛火山喷发影响欧洲航线",              desc:"雷克雅内斯半岛第7次喷发，火山灰云扩散至北大西洋，百余航班被迫改道。",          cat:"气候",   color:"#00ff88", region:"雷克雅未克", time:"8小时前" },
+  { lat:48.85,  lon:2.35,    title:"欧盟通过新版AI监管法案",                desc:"欧洲议会以绝对多数票通过《人工智能法案》修正案，对高风险AI系统设最严格审查。",  cat:"地缘政治",color:"#ff6b6b", region:"巴黎",      time:"5小时前" },
+  { lat:55.75,  lon:37.61,   title:"俄罗斯宣布与伊朗能源合作协议",          desc:"两国签署价值400亿美元的10年天然气供应协议，进一步重塑全球能源格局。",          cat:"地缘政治",color:"#ff6b6b", region:"莫斯科",    time:"7小时前" },
+  { lat:31.22,  lon:121.46,  title:"上海完成首例AI辅助心脏手术",            desc:"复旦大学附属医院成功完成全球首例全程AI辅助机器人心脏瓣膜置换手术。",          cat:"健康医疗",color:"#ff88ff", region:"上海",      time:"2小时前" },
+  { lat:13.75,  lon:100.50,  title:"东南亚新型登革热疫苗进入三期试验",      desc:"泰国研发的新型四价登革热疫苗在6国同步展开大规模三期临床试验。",              cat:"健康医疗",color:"#ff88ff", region:"曼谷",      time:"9小时前" },
+  { lat:28.61,  lon:77.20,   title:"印度成功发射载人月球轨道站",            desc:"ISRO成功将Gaganyaan-2送入月球转移轨道，计划停留72小时。",                   cat:"航天探索",color:"#88aaff", region:"新德里",    time:"12小时前"},
+  { lat:29.55,  lon:-95.09,  title:"SpaceX 星舰第12次试飞成功返回",        desc:"星舰完整飞行测试成功，实现海上平台精准着陆，为火星任务奠定基础。",            cat:"航天探索",color:"#88aaff", region:"休斯顿",    time:"16小时前"},
+  { lat:-23.54, lon:-46.63,  title:"巴西里约狂欢节吸引1500万游客",          desc:"2026年里约热内卢狂欢节创历史纪录，旅游收入突破200亿雷亚尔。",                cat:"文化社会",color:"#ffaa44", region:"里约热内卢", time:"18小时前"},
+  { lat:30.04,  lon:31.23,   title:"埃及出土罕见法老黄金面具",              desc:"卢克索考古团队在帝王谷发现保存完好的未知法老金面具，估计距今3400年。",        cat:"文化社会",color:"#ffaa44", region:"开罗",      time:"1天前"  },
+  { lat:1.35,   lon:103.81,  title:"新加坡宣布全球首个无人驾驶出租城市",    desc:"新加坡政府宣布2026年底实现全岛自动驾驶出租车覆盖。",                        cat:"科技",   color:"#00c8ff", region:"新加坡",    time:"10小时前"},
+  { lat:52.52,  lon:13.40,   title:"柏林举办世界最大量子计算峰会",          desc:"来自58个国家的2000余名科学家聚首柏林，讨论后量子密码学标准化。",              cat:"科技",   color:"#00c8ff", region:"柏林",      time:"14小时前"},
+  { lat:-26.20, lon:28.04,   title:"南非发现超大型稀土矿床",                desc:"南非地质调查局宣布在林波波省发现储量约4000万吨的稀土矿床。",                  cat:"经济",   color:"#ffd700", region:"约翰内斯堡", time:"20小时前"},
+  { lat:19.43,  lon:-99.13,  title:"墨西哥城地震灾后重建完成",              desc:"经历6.8级地震2年后，采用全球首批最高抗震标准智慧建筑重建完成。",              cat:"文化社会",color:"#ffaa44", region:"墨西哥城",  time:"1天前"  },
+  { lat:59.91,  lon:10.75,   title:"挪威完成首个北极圈碳捕获项目",          desc:"挪威国家石油完成北极圈首个大规模碳捕获与封存项目，每年可封存500万吨CO₂。",   cat:"气候",   color:"#00ff88", region:"奥斯陆",    time:"22小时前"},
+  { lat:25.20,  lon:55.27,   title:"迪拜建成全球最高可再生能源塔",          desc:"迪拜828米可再生能源综合体竣工，集风能、太阳能于一体，可为3万家庭供电。",      cat:"气候",   color:"#00ff88", region:"迪拜",      time:"15小时前"}
+];
+
+// ═══════════════════════════════════════════════
+// Three.js 基础
+// ═══════════════════════════════════════════════
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 2.8);
+
+// ─── 灯光 ───
+const ambient = new THREE.AmbientLight(0x112244, 0.8);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xffffff, 2.5);
+sun.position.set(5, 3, 5);
+scene.add(sun);
+const rimLight = new THREE.DirectionalLight(0x2244aa, 0.6);
+rimLight.position.set(-4, 1, -3);
+scene.add(rimLight);
+
+// ─── 星空 ───
+(function buildStars() {
+  const N = 2500;
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const phi = Math.acos(2 * Math.random() - 1);
+    const theta = Math.random() * Math.PI * 2;
+    const r = 80 + Math.random() * 150;
+    pos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    pos[i*3+2] = r * Math.cos(phi);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.25, transparent: true, opacity: 0.85,
+    sizeAttenuation: true, depthWrite: false
+  })));
+})();
+
+// ═══════════════════════════════════════════════
+// 用 Canvas 生成真实地图贴图
+// ═══════════════════════════════════════════════
+const TEX_W = 4096, TEX_H = 2048;
+
+function setProgress(p, txt) {
+  document.getElementById('loading-bar').style.width = p + '%';
+  if (txt) document.getElementById('loading-text').textContent = txt;
+}
+
+async function buildEarthTextures() {
+  setProgress(5, '请求地图数据...');
+
+  // 从 CDN 获取 Natural Earth 110m 国家 GeoJSON（轻量版约 100KB）
+  let geojson;
+  try {
+    const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+    const topo = await res.json();
+    // TopoJSON → GeoJSON 手动解码（不引入额外库）
+    geojson = topoToGeo(topo, topo.objects.countries);
+    setProgress(40, '解析地图...');
+  } catch(e) {
+    console.warn('GeoJSON fetch failed, using fallback:', e);
+    geojson = null;
+  }
+
+  setProgress(55, '绘制地球贴图...');
+
+  // ── 昼面贴图 ──
+  const dayCanvas = document.createElement('canvas');
+  dayCanvas.width = TEX_W; dayCanvas.height = TEX_H;
+  const dc = dayCanvas.getContext('2d');
+
+  // 海洋渐变
+  const seaGrad = dc.createLinearGradient(0,0,0,TEX_H);
+  seaGrad.addColorStop(0,   '#0a1a3a');
+  seaGrad.addColorStop(0.5, '#0d2a55');
+  seaGrad.addColorStop(1,   '#0a1a3a');
+  dc.fillStyle = seaGrad;
+  dc.fillRect(0, 0, TEX_W, TEX_H);
+
+  // 海洋网格纹理（经纬线）
+  dc.strokeStyle = 'rgba(30,80,160,0.18)';
+  dc.lineWidth = 0.8;
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const x = (lon + 180) / 360 * TEX_W;
+    dc.beginPath(); dc.moveTo(x, 0); dc.lineTo(x, TEX_H); dc.stroke();
+  }
+  for (let lat = -90; lat <= 90; lat += 30) {
+    const y = (90 - lat) / 180 * TEX_H;
+    dc.beginPath(); dc.moveTo(0, y); dc.lineTo(TEX_W, y); dc.stroke();
+  }
+
+  if (geojson) {
+    drawGeoJSON(dc, geojson, TEX_W, TEX_H);
+  } else {
+    drawFallbackLand(dc, TEX_W, TEX_H);
+  }
+
+  setProgress(75, '生成夜间贴图...');
+
+  // ── 夜间贴图 ──
+  const nightCanvas = document.createElement('canvas');
+  nightCanvas.width = TEX_W; nightCanvas.height = TEX_H;
+  const nc = nightCanvas.getContext('2d');
+  nc.fillStyle = '#000005';
+  nc.fillRect(0, 0, TEX_W, TEX_H);
+
+  if (geojson) {
+    drawNightLights(nc, geojson, TEX_W, TEX_H);
+  }
+
+  setProgress(88, '生成法线+高光贴图...');
+
+  // ── 法线/高光贴图（简化版：陆地亚光 海洋高光） ──
+  const specCanvas = document.createElement('canvas');
+  specCanvas.width = TEX_W; specCanvas.height = TEX_H;
+  const sc = specCanvas.getContext('2d');
+  // 默认高光（海洋）
+  sc.fillStyle = '#667788';
+  sc.fillRect(0, 0, TEX_W, TEX_H);
+  if (geojson) {
+    drawLandSpec(sc, geojson, TEX_W, TEX_H);
+  }
+
+  setProgress(95, '构建3D场景...');
+
+  return {
+    day: new THREE.CanvasTexture(dayCanvas),
+    night: new THREE.CanvasTexture(nightCanvas),
+    spec: new THREE.CanvasTexture(specCanvas)
+  };
+}
+
+// ─── GeoJSON 路径绘制 ───
+function lonLatToCanvas(lon, lat, w, h) {
+  return [(lon + 180) / 360 * w, (90 - lat) / 180 * h];
+}
+
+function drawGeoJSON(ctx, geojson, w, h) {
+  ctx.save();
+  geojson.features.forEach(f => {
+    const geom = f.geometry;
+    if (!geom) return;
+    ctx.beginPath();
+    drawGeometry(ctx, geom, w, h);
+    // 陆地填充
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0,   '#2a5c2a');
+    grad.addColorStop(0.3, '#3a7a30');
+    grad.addColorStop(0.5, '#4a8a38');
+    grad.addColorStop(0.7, '#3a7a30');
+    grad.addColorStop(1,   '#1e4020');
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(100,180,120,0.4)';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  // 极地冰盖
+  ctx.save();
+  const iceGrad = ctx.createLinearGradient(0, 0, 0, h * 0.12);
+  iceGrad.addColorStop(0, 'rgba(220,235,255,0.92)');
+  iceGrad.addColorStop(1, 'rgba(180,210,240,0.0)');
+  ctx.fillStyle = iceGrad;
+  ctx.fillRect(0, 0, w, h * 0.11);
+  const iceGrad2 = ctx.createLinearGradient(0, h * 0.88, 0, h);
+  iceGrad2.addColorStop(0, 'rgba(220,235,255,0.0)');
+  iceGrad2.addColorStop(1, 'rgba(235,245,255,0.95)');
+  ctx.fillStyle = iceGrad2;
+  ctx.fillRect(0, h * 0.88, w, h * 0.12);
+  ctx.restore();
+
+  // 山地阴影（噪声模拟）
+  addTerrainDetail(ctx, w, h);
+}
+
+function drawGeometry(ctx, geom, w, h) {
+  const type = geom.type;
+  const coords = geom.coordinates;
+  if (type === 'Polygon') {
+    drawRing(ctx, coords[0], w, h);
+    for (let i = 1; i < coords.length; i++) drawHole(ctx, coords[i], w, h);
+  } else if (type === 'MultiPolygon') {
+    coords.forEach(poly => {
+      drawRing(ctx, poly[0], w, h);
+      for (let i = 1; i < poly.length; i++) drawHole(ctx, poly[i], w, h);
+    });
+  }
+}
+
+function drawRing(ctx, ring, w, h) {
+  if (!ring || ring.length < 2) return;
+  const [x0, y0] = lonLatToCanvas(ring[0][0], ring[0][1], w, h);
+  ctx.moveTo(x0, y0);
+  for (let i = 1; i < ring.length; i++) {
+    const [x, y] = lonLatToCanvas(ring[i][0], ring[i][1], w, h);
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function drawHole(ctx, ring, w, h) {
+  // 孔洞（反向绘制）
+  if (!ring || ring.length < 2) return;
+  const [x0, y0] = lonLatToCanvas(ring[0][0], ring[0][1], w, h);
+  ctx.moveTo(x0, y0);
+  for (let i = ring.length - 1; i >= 1; i--) {
+    const [x, y] = lonLatToCanvas(ring[i][0], ring[i][1], w, h);
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function addTerrainDetail(ctx, w, h) {
+  // 用噪声点模拟地形纹理（轻量化）
+  const imgd = ctx.getImageData(0, 0, w, h);
+  const data = imgd.data;
+  // 仅在陆地像素（绿色偏高）上添加微小变化
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i], g = data[i+1], b = data[i+2];
+    if (g > r + 5 && g > b) {
+      // 是陆地：加轻微纹理
+      const noise = (Math.random() - 0.5) * 18;
+      data[i]   = Math.max(0, Math.min(255, r + noise * 0.6));
+      data[i+1] = Math.max(0, Math.min(255, g + noise));
+      data[i+2] = Math.max(0, Math.min(255, b + noise * 0.4));
+    }
+  }
+  ctx.putImageData(imgd, 0, 0);
+}
+
+function drawNightLights(ctx, geojson, w, h) {
+  // 夜间城市灯光（陆地上随机暖光点）
+  const offscreen = document.createElement('canvas');
+  offscreen.width = w; offscreen.height = h;
+  const oc = offscreen.getContext('2d');
+  oc.fillStyle = '#000';
+  oc.fillRect(0, 0, w, h);
+
+  geojson.features.forEach(f => {
+    if (!f.geometry) return;
+    oc.beginPath();
+    drawGeometry(oc, f.geometry, w, h);
+    oc.fillStyle = 'white';
+    oc.fill();
+  });
+
+  // 从蒙版读取陆地像素，在其上绘制灯光
+  const mask = oc.getImageData(0, 0, w, h);
+  ctx.save();
+  // 随机点灯
+  const NUM_LIGHTS = 8000;
+  for (let k = 0; k < NUM_LIGHTS; k++) {
+    const px = Math.floor(Math.random() * w);
+    const py = Math.floor(Math.random() * h);
+    const idx = (py * w + px) * 4;
+    if (mask.data[idx] > 128) { // 在陆地上
+      const r = 1 + Math.random() * 2;
+      const alpha = 0.3 + Math.random() * 0.5;
+      // 高密度区域（模拟欧洲/东亚/北美）
+      const lon = px / w * 360 - 180;
+      const lat = 90 - py / h * 180;
+      let density = 0.15;
+      if ((lon > -10 && lon < 40 && lat > 35 && lat < 60)) density = 0.85; // 欧洲
+      if ((lon > 100 && lon < 145 && lat > 20 && lat < 45)) density = 0.90; // 东亚
+      if ((lon > -100 && lon < -65 && lat > 25 && lat < 50)) density = 0.80; // 北美东海岸
+      if ((lon > -85 && lon < -55 && lat > -35 && lat < -15)) density = 0.55; // 南美
+      if (Math.random() < density) {
+        const grd = ctx.createRadialGradient(px,py,0,px,py,r*2);
+        grd.addColorStop(0, `rgba(255,230,150,${alpha})`);
+        grd.addColorStop(1, 'rgba(255,180,80,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath(); ctx.arc(px, py, r*2, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawLandSpec(ctx, geojson, w, h) {
+  // 陆地低高光
+  ctx.save();
+  geojson.features.forEach(f => {
+    if (!f.geometry) return;
+    ctx.beginPath();
+    drawGeometry(ctx, f.geometry, w, h);
+    ctx.fillStyle = '#223322';
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+// ─── Fallback（无GeoJSON时）───
+function drawFallbackLand(ctx, w, h) {
+  // 简单近似大陆轮廓（矩形块）
+  ctx.fillStyle = '#3a7a30';
+  const blocks = [
+    [-170,10,60,70],  // 北美
+    [-80,-55,40,10],  // 南美
+    [-20,-35,55,37],  // 非洲
+    [0,35,150,72],    // 欧亚
+    [110,-45,155,10], // 澳大利亚
+    [160,-50,180,10], // 新西兰
+  ];
+  blocks.forEach(([lon1,lat1,lon2,lat2]) => {
+    const [x1,y1] = lonLatToCanvas(lon1,lat2,w,h);
+    const [x2,y2] = lonLatToCanvas(lon2,lat1,w,h);
+    ctx.fillRect(x1,y1,x2-x1,y2-y1);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// TopoJSON 简易解码（world-atlas 格式）
+// ═══════════════════════════════════════════════
+function topoToGeo(topology, object) {
+  const arcs = topology.arcs;
+  const scale = topology.transform ? topology.transform.scale : [1,1];
+  const translate = topology.transform ? topology.transform.translate : [0,0];
+
+  function decodeArc(arc) {
+    let x = 0, y = 0;
+    return arc.map(pt => {
+      x += pt[0]; y += pt[1];
+      return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
+    });
+  }
+
+  function getArc(i) {
+    if (i < 0) return decodeArc(arcs[~i]).reverse();
+    return decodeArc(arcs[i]);
+  }
+
+  function ringToCoords(ring) {
+    return ring.reduce((acc, idx) => acc.concat(getArc(idx)), []);
+  }
+
+  const features = object.geometries.map(geom => {
+    let geometry;
+    if (geom.type === 'Polygon') {
+      geometry = { type:'Polygon', coordinates: geom.arcs.map(ringToCoords) };
+    } else if (geom.type === 'MultiPolygon') {
+      geometry = { type:'MultiPolygon', coordinates: geom.arcs.map(poly => poly.map(ringToCoords)) };
+    } else {
+      geometry = null;
+    }
+    return { type:'Feature', properties: geom.properties || {}, geometry };
+  });
+
+  return { type:'FeatureCollection', features };
+}
+
+// ═══════════════════════════════════════════════
+// 主程序
+// ═══════════════════════════════════════════════
+let earthMesh, markerGroup, markerMeshes = [];
+let rotX = 0.25, rotY = 0, targetRotX = 0.25, targetRotY = 0;
+let isDragging = false, prevX = 0, prevY = 0;
+
+async function init() {
+  const textures = await buildEarthTextures();
+  setProgress(98, '渲染中...');
+
+  // ─── 地球主体 ───
+  const earthGeo = new THREE.SphereGeometry(1, 128, 128);
+  const earthMat = new THREE.MeshPhongMaterial({
+    map: textures.day,
+    specularMap: textures.spec,
+    specular: new THREE.Color(0x334455),
+    shininess: 35,
+    bumpScale: 0.005
+  });
+  earthMesh = new THREE.Mesh(earthGeo, earthMat);
+  scene.add(earthMesh);
+
+  // 夜面叠加（背光面显示城市灯光）
+  const nightMat = new THREE.MeshBasicMaterial({
+    map: textures.night,
+    blending: THREE.MultiplyBlending,
+    transparent: true,
+    opacity: 0.0, // 通过着色器控制
+    depthWrite: false
+  });
+  // 改用自定义着色器控制昼夜
+  const nightGeo = new THREE.SphereGeometry(1.001, 128, 128);
+  const nightShader = new THREE.ShaderMaterial({
+    uniforms: {
+      nightTex: { value: textures.night },
+      sunDir:   { value: new THREE.Vector3(5,3,5).normalize() }
+    },
+    vertexShader: `
+      varying vec3 vWorldNormal;
+      varying vec2 vUv;
+      void main() {
+        vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D nightTex;
+      uniform vec3 sunDir;
+      varying vec3 vWorldNormal;
+      varying vec2 vUv;
+      void main() {
+        float diff = dot(vWorldNormal, sunDir);
+        float nightBlend = smoothstep(0.1, -0.25, diff);
+        vec4 night = texture2D(nightTex, vUv);
+        gl_FragColor = vec4(night.rgb, nightBlend * night.a * 1.2);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  scene.add(new THREE.Mesh(nightGeo, nightShader));
+
+  // ─── 大气层 ───
+  const atmoMat = new THREE.ShaderMaterial({
+    vertexShader: `
+      varying vec3 vNormal;
+      void main() {
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vNormal;
+      void main() {
+        float f = pow(1.0 - abs(dot(vNormal, vec3(0,0,1))), 2.8);
+        vec3 col = mix(vec3(0.15,0.45,1.0), vec3(0.4,0.7,1.0), f);
+        gl_FragColor = vec4(col, f * 0.55);
+      }
+    `,
+    transparent: true, side: THREE.FrontSide,
+    depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.04, 64, 64), atmoMat));
+
+  // ─── 云层（轻量程序化） ───
+  const cloudCanvas = buildCloudTexture();
+  const cloudMat = new THREE.MeshPhongMaterial({
+    map: new THREE.CanvasTexture(cloudCanvas),
+    transparent: true, opacity: 0.45, depthWrite: false,
+    blending: THREE.NormalBlending
+  });
+  const cloudMesh = new THREE.Mesh(new THREE.SphereGeometry(1.012, 64, 64), cloudMat);
+  scene.add(cloudMesh);
+
+  // ─── 新闻标注 ───
+  buildMarkers();
+
+  // ─── 弧线 ───
+  buildArcs();
+
+  // ─── 跑马灯 ───
+  buildTicker();
+
+  // 云层慢速旋转
+  cloudMesh._cloudMesh = true;
+
+  setProgress(100, '加载完成');
+  setTimeout(() => {
+    const loading = document.getElementById('loading');
+    loading.classList.add('fade-out');
+    setTimeout(() => loading.remove(), 800);
+  }, 300);
+
+  // 渲染循环
+  const clock = new THREE.Clock();
+  function animate() {
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    rotX += (targetRotX - rotX) * 0.08;
+    rotY += (targetRotY - rotY) * 0.08;
+    if (!isDragging) targetRotY += 0.0012;
+
+    earthMesh.rotation.x = rotX;
+    earthMesh.rotation.y = rotY;
+    markerGroup.rotation.x = rotX;
+    markerGroup.rotation.y = rotY;
+    // 同步所有场景子对象旋转
+    scene.children.forEach(c => {
+      if (c !== markerGroup && c.isMesh && c.geometry && c.geometry.type === 'SphereGeometry') {
+        c.rotation.x = rotX;
+        c.rotation.y = rotY + (c._cloudMesh ? t * 0.008 : 0);
+      }
+    });
+    // 脉冲标注
+    markerGroup.children.forEach(c => {
+      if (c.material && c.material.uniforms && c.material.uniforms.uTime) {
+        c.material.uniforms.uTime.value = t;
+      }
+    });
+    renderer.render(scene, camera);
+  }
+  animate();
+}
+
+// ─── 云层贴图 ───
+function buildCloudTexture() {
+  const CW = 2048, CH = 1024;
+  const cv = document.createElement('canvas');
+  cv.width = CW; cv.height = CH;
+  const cx = cv.getContext('2d');
+  cx.fillStyle = 'transparent';
+  cx.clearRect(0, 0, CW, CH);
+  // 随机云团
+  const NUM = 120;
+  for (let i = 0; i < NUM; i++) {
+    const x = Math.random() * CW, y = Math.random() * CH;
+    const rx = 20 + Math.random() * 80, ry = 10 + Math.random() * 35;
+    const alpha = 0.2 + Math.random() * 0.5;
+    const grd = cx.createRadialGradient(x, y, 0, x, y, Math.max(rx,ry));
+    grd.addColorStop(0, `rgba(255,255,255,${alpha})`);
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    cx.save();
+    cx.scale(1, ry/rx);
+    cx.beginPath();
+    cx.arc(x, y * (rx/ry), rx, 0, Math.PI * 2);
+    cx.fillStyle = grd;
+    cx.fill();
+    cx.restore();
+  }
+  return cv;
+}
+
+// ─── 标注点 ───
+function latLonToVec3(lat, lon, r = 1.02) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -r * Math.sin(phi) * Math.cos(theta),
+     r * Math.cos(phi),
+     r * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+function buildMarkers() {
+  markerGroup = new THREE.Group();
+  scene.add(markerGroup);
+
+  NEWS.forEach((item, idx) => {
+    const pos = latLonToVec3(item.lat, item.lon, 1.018);
+    const col = new THREE.Color(item.color);
+
+    // 核心发光球
+    const coreMat = new THREE.MeshBasicMaterial({ color: col });
+    const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.010, 12, 12), coreMat);
+    coreMesh.position.copy(pos);
+    coreMesh.userData = { newsIdx: idx };
+    markerGroup.add(coreMesh);
+    markerMeshes.push(coreMesh);
+
+    // 脉冲光环（Shader）
+    const ringMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: col },
+        uOffset: { value: idx * 0.37 }
+      },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `
+        uniform float uTime; uniform vec3 uColor; uniform float uOffset;
+        varying vec2 vUv;
+        void main(){
+          vec2 c = vUv - 0.5; float d = length(c);
+          float r1 = abs(d - 0.35); float a1 = smoothstep(0.06,0.0,r1)*0.9;
+          float pulse = mod(uTime*0.9+uOffset,1.0);
+          float r2 = abs(d - pulse*0.5); float a2 = smoothstep(0.04,0.0,r2)*(1.0-pulse)*0.8;
+          gl_FragColor = vec4(uColor, max(a1,a2));
+        }
+      `,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+    });
+    const ring = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.075), ringMat);
+    ring.position.copy(pos);
+    ring.lookAt(pos.clone().multiplyScalar(3));
+    markerGroup.add(ring);
+
+    // 竖向光柱
+    const beamH = 0.07;
+    const beamMat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: col }, uTime: { value: 0 }, uIdx: { value: idx } },
+      vertexShader: `varying float vY; void main(){ vY=position.y; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `
+        uniform vec3 uColor; uniform float uTime; uniform float uIdx;
+        varying float vY;
+        void main(){
+          float t=(vY+${(beamH/2).toFixed(3)})*${(1/beamH).toFixed(3)};
+          float pulse=0.6+0.4*sin(uTime*2.5+uIdx);
+          gl_FragColor=vec4(uColor, t*pulse*0.85);
+        }
+      `,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+    });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.005, beamH, 6, 1, true), beamMat);
+    const beamPos = pos.clone().normalize().multiplyScalar(1.018 + beamH / 2);
+    beam.position.copy(beamPos);
+    beam.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), pos.clone().normalize());
+    markerGroup.add(beam);
+  });
+}
+
+// ─── 弧线 ───
+function buildArcs() {
+  const pairs = [[0,6],[1,7],[2,3],[4,18],[9,19],[10,11],[8,14],[12,16]];
+  pairs.forEach(([a,b]) => {
+    const p1 = latLonToVec3(NEWS[a].lat, NEWS[a].lon, 1.0);
+    const p2 = latLonToVec3(NEWS[b].lat, NEWS[b].lon, 1.0);
+    const mid = p1.clone().add(p2).multiplyScalar(0.5);
+    mid.normalize().multiplyScalar(mid.length() + 0.25 + p1.distanceTo(p2) * 0.18);
+    const curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
+    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(60));
+    const mat = new THREE.LineBasicMaterial({
+      color: new THREE.Color(NEWS[a].color),
+      transparent: true, opacity: 0.45,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    scene.add(new THREE.Line(geo, mat));
+  });
+}
+
+// ─── 跑马灯 ───
+function buildTicker() {
+  const track = document.getElementById('ticker-track');
+  const doubled = [...NEWS, ...NEWS];
+  track.innerHTML = doubled.map(item =>
+    `<span class="ticker-item"><span class="ticker-dot" style="background:${item.color}"></span>【${item.region}】${item.title}</span>`
+  ).join('');
+}
+
+// ═══════════════════════════════════════════════
+// 交互
+// ═══════════════════════════════════════════════
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const card = document.getElementById('news-card');
+
+renderer.domElement.addEventListener('mousedown', e => { isDragging=true; prevX=e.clientX; prevY=e.clientY; });
+window.addEventListener('mouseup', () => isDragging=false);
+window.addEventListener('mousemove', e => {
+  if (isDragging) {
+    targetRotY += (e.clientX - prevX) * 0.006;
+    targetRotX += (e.clientY - prevY) * 0.005;
+    targetRotX = Math.max(-1.2, Math.min(1.2, targetRotX));
+    prevX=e.clientX; prevY=e.clientY;
+  }
+  checkHover(e);
+});
+renderer.domElement.addEventListener('wheel', e => {
+  camera.position.z = Math.max(1.5, Math.min(5.0, camera.position.z + e.deltaY * 0.002));
+});
+
+let touchStart = null;
+renderer.domElement.addEventListener('touchstart', e => { if(e.touches.length===1) touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}; });
+renderer.domElement.addEventListener('touchmove', e => {
+  if (!touchStart || e.touches.length!==1) return;
+  targetRotY += (e.touches[0].clientX - touchStart.x) * 0.006;
+  targetRotX += (e.touches[0].clientY - touchStart.y) * 0.005;
+  targetRotX = Math.max(-1.2, Math.min(1.2, targetRotX));
+  touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY};
+  e.preventDefault();
+}, {passive:false});
+
+function checkHover(e) {
+  if (!markerMeshes.length) return;
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  raycaster.params.Points = { threshold: 0.01 };
+  const hits = raycaster.intersectObjects(markerMeshes);
+  if (hits.length > 0) {
+    showCard(NEWS[hits[0].object.userData.newsIdx], e.clientX, e.clientY);
+  } else {
+    card.classList.remove('visible');
+  }
+}
+
+function showCard(item, x, y) {
+  const catEl = document.getElementById('card-cat');
+  catEl.textContent = item.cat;
+  catEl.style.background = item.color + '22';
+  catEl.style.color = item.color;
+  document.getElementById('card-title').textContent = item.title;
+  document.getElementById('card-desc').textContent = item.desc;
+  document.getElementById('card-region').textContent = '📍 ' + item.region;
+  document.getElementById('card-time').textContent = '🕐 ' + item.time;
+  const W = 280, H = 190;
+  card.style.left = Math.min(Math.max(x+16, 8), window.innerWidth-W-8) + 'px';
+  card.style.top  = Math.min(Math.max(y-H/2, 68), window.innerHeight-H-42) + 'px';
+  card.classList.add('visible');
+}
+
+// 时钟
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('zh-CN',{hour12:false}) + '  UTC+8';
+}, 1000);
+document.getElementById('clock').textContent =
+  new Date().toLocaleTimeString('zh-CN',{hour12:false}) + '  UTC+8';
+
+// 响应式
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── 启动 ───
+init().catch(err => {
+  console.error(err);
+  document.getElementById('loading-text').textContent = '加载失败，请刷新重试';
+});
+</script>
+</body>
+</html>
