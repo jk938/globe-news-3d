@@ -63,6 +63,10 @@ canvas { display:block; }
   padding:10px 16px; border-top:1px solid rgba(0,180,255,0.15);
   font-size:10px; color:rgba(255,255,255,0.3); text-align:center;
   flex-shrink:0;
+  display:flex; flex-direction:column; gap:4px;
+}
+#panel-footer .summary-count {
+  font-size:14px; font-weight:700; color:#00c8ff; letter-spacing:2px;
 }
 
 /* ── HUD ── */
@@ -255,7 +259,9 @@ canvas { display:block; }
     </div>
     <div id="panel-list"></div>
     <div id="panel-footer">
-      共 <span id="list-count">20</span> 条 · 点击任意一条查看详情
+      <div class="summary-count">📋 <span id="list-count">20</span> 条新闻</div>
+      <div style="font-size:9px;color:rgba(255,255,255,0.3);letter-spacing:1px">🕐 下次刷新: <span id="refresh-timer">15:00</span></div>
+      <div style="font-size:9px;color:rgba(0,180,255,0.4);margin-top:2px">👆 点击任意一条查看详情</div>
     </div>
   </div>
 </div>
@@ -475,9 +481,9 @@ function drawGeoJSON(ctx, geojson, w, h) {
     grad.addColorStop(1,   '#1e4020');
     ctx.fillStyle = grad;
     ctx.fill();
-    // ── 国界线（加粗加深）──
-    ctx.strokeStyle = 'rgba(180,220,255,0.75)';
-    ctx.lineWidth = 1.2;
+    // ── 国界线（红色醒目）──
+    ctx.strokeStyle = '#ff4444';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
   });
   ctx.restore();
@@ -766,18 +772,13 @@ function refreshNews() {
 
 function startRefreshTimer() {
   refreshTimer = 15 * 60; // 15分钟
-  const timerEl = document.getElementById('panel-footer');
   function tick() {
     const m = Math.floor(refreshTimer / 60).toString().padStart(2, '0');
     const s = (refreshTimer % 60).toString().padStart(2, '0');
     const listCount = document.getElementById('list-count');
-    if (listCount) {
-      const filtered = getFilteredNews();
-      listCount.textContent = filtered.length;
-    }
-    if (timerEl) {
-      timerEl.innerHTML = `下次刷新: <span style="color:#00c8ff">${m}:${s}</span> · 共 <span id="list-count">${getFilteredNews().length}</span> 条`;
-    }
+    const timerEl = document.getElementById('refresh-timer');
+    if (listCount) listCount.textContent = getFilteredNews().length;
+    if (timerEl) timerEl.textContent = `${m}:${s}`;
     if (refreshTimer <= 0) {
       refreshNews();
       refreshTimer = 15 * 60;
